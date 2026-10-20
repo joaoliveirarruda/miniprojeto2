@@ -1,39 +1,19 @@
-# Diretórios e arquivos gerados por ambientes virtuais
-venv/
-.env/
-
-# Arquivos de configuração do sistema operacional
-.DS_Store
-Thumbs.db
-
-# Arquivos temporários ou de cache
-*.pyc
-*.pyo
+# Python
+.venv/
 __pycache__/
-
-# Dados e modelos grandes
-data/
-models/
-
-# Arquivos de log
-*.log
-
-# Dependências geradas automaticamente
-*.egg-info/
-*.egg
-build/
-dist/
-
-# Configurações locais do Streamlit
-.streamlit/
-
-# Arquivos grandes e desnecessários
-*.wav
-*.mp3
-*.h5
-*.pkl
-
-# Configurações específicas do IDE
-.vscode/
-.idea/
 .ipynb_checkpoints/
+
+# Dataset and training artifacts (reproduce with the scripts; the model lives on the HF Hub)
+data/
+artifacts/
+
+# Web
+web/node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+web/public/models/
+.vercel
+
+.DS_Store
+*.tsbuildinfo

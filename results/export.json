@@ -1,0 +1,8 @@
+{
+  "max_prob_diff": 0.3325384259223938,
+  "mean_prob_diff": 0.029649853924551432,
+  "argmax_agreement": 0.9833333333333333,
+  "fp32_mb": 378.512337,
+  "int8_mb": 122.129723,
+  "int8_ms_per_3s_window_native_cpu": 182.871004199842
+}
