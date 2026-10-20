@@ -1,113 +1,100 @@
-# Reconhecimento de Emoções em Áudio
+# How do you sound? · Real-time speech emotion recognition
 
-Este é um projeto de **classificação de emoções em áudio**, onde é utilizado o dataset **RAVDESS** para treinar um modelo capaz de identificar a emoção presente em arquivos de áudio enviados pelos usuários. A aplicação conta com uma interface interativa desenvolvida em **Streamlit**, permitindo que os usuários enviem áudios para análise.
+Talk into your microphone and a fine-tuned **wav2vec2** model guesses the emotion in your voice, live, **entirely in your
+browser**: no server, and your audio never leaves your device.
 
-### 🎥 Vídeo Explicativo: [Mini Projeto 2 - Trilha](https://www.youtube.com/watch?v=xf8GMCGjloQ&ab_channel=LuigiSchmitt)
+**▶ Live demo: _DEMO_URL_**
 
-![Descrição da Imagem](https://i.imgur.com/33MqEWQ.png)
+<!-- GIF: record the demo and save it as docs/demo.gif -->
 
-## Pipeline do Projeto
+| | Accuracy | Macro-F1 |
+|---|---|---|
+| Original CNN, original evaluation (leaky) | 63.5% | 63.1% |
+| Logistic regression, unseen speakers | 33.6% | 32.2% |
+| Original CNN, unseen speakers | 35.8% | 33.9% |
+| **Fine-tuned wav2vec2, unseen speakers** | **_W2V_ACC_** | **_W2V_F1_** |
 
-### 1. Coleta e Organização dos Dados
+<sub>RAVDESS speech, 8 emotions (chance = 12.5%). "Unseen speakers" = 6 actors held out from training (360 clips).</sub>
 
-- **Dataset Utilizado**: [RAVDESS (Ryerson Audio-Visual Database of Emotional Speech and Song)](https://zenodo.org/record/1188976)
-  - O dataset contém gravações de áudios com diferentes emoções atuadas, como: alegria, tristeza, raiva, calma, medo, nojo, surpresa e neutro.
-  - As emoções são representadas por números nos nomes dos arquivos.
+## What this project is
 
-- **Organização**:
-  - Modality (01 = full-AV, 02 = video-only, 03 = audio-only).
-  - Vocal channel (01 = speech, 02 = song).
-  - Emotion (01 = neutral, 02 = calm, 03 = happy, 04 = sad, 05 = angry, 06 = fearful, 07 = disgust, 08 = surprised).
-  - Emotional intensity (01 = normal, 02 = strong). NOTE: There is no strong intensity for the 'neutral' emotion.
-  - Statement (01 = "Kids are talking by the door", 02 = "Dogs are sitting by the door").
-  - Repetition (01 = 1st repetition, 02 = 2nd repetition).
-  - Actor (01 to 24. Odd numbered actors are male, even numbered actors are female).
+It started as a course mini-project ([Trilha UFPB](LICENSE)): a Keras CNN on hand-crafted audio features with a Streamlit
+front-end. Revisiting it, I found that it didn't work the way its README said, and rebuilt it:
 
-### 2. Extração de Features
+| Problem in the original | What it caused | Fix |
+|---|---|---|
+| Training extracted features at 22 kHz from a 2.5 s crop with 20 MFCCs; the app used 16 kHz, the full clip and 40 MFCCs, truncated to fit | The app fed the model features it had never seen: its predictions were close to meaningless | One model that reads **raw audio**, so there is no feature pipeline to drift; the exported model is tested against the PyTorch one |
+| Augmented copies of every clip were made **before** a random train/test split, and every actor appeared on both sides | 67% accuracy that was really "recognise this clip / this actor"; the same CNN scores **36%** on new speakers | Fixed **speaker-independent split** (by actor, gender-balanced), augmentation on the training set only |
+| Absolute paths, model not in the repo, unpinned dependencies | Nobody else could run it | `uv` project with a lockfile, scripts that download the data, model published on the Hugging Face Hub |
+| Streamlit app | Can't be hosted on Vercel; needs a server | Static Next.js site with in-browser inference |
 
-A extração de features é uma etapa fundamental para converter os arquivos de áudio em representações numéricas compreensíveis pelo modelo de machine learning. Foram utilizadas as seguintes técnicas:
+## How it works
 
-- **MFCCs (Mel-Frequency Cepstral Coefficients)**: Capturam as características espectrais do áudio.
-- **Chroma Features**: Representam as energias das notas musicais.
-- **Spectral Contrast**: Diferença entre os picos e vales no espectro de frequências.
-- **Zero-Crossing Rate**: Taxa de mudança de sinal no áudio.
+```
+ mic ──► AudioWorklet ──► 3 s ring buffer ──► every 0.5 s: silence gate ──► resample to 16 kHz
+                                                                                   │
+           UI (smoothed bars) ◄── probabilities ◄── Web Worker: wav2vec2 int8 ONNX ◄┘
+                                                    (transformers.js / onnxruntime-web, WASM)
+```
 
-As features foram extraídas usando a biblioteca **librosa** e normalizadas para melhor desempenho do modelo.
+- **Model:** `facebook/wav2vec2-base` (pretrained on 960 h of unlabelled speech) with a classification head, fine-tuned on
+  random 3-second windows of RAVDESS with noise augmentation. Its transformer matmuls are quantised to int8 for the browser
+  (_INT8_MB_ MB download, cached after the first visit).
+- **Real-time loop:** the page keeps the last 3 s of microphone audio. Every 500 ms, if the last second is louder than a
+  silence threshold, the window goes to a Web Worker. If the worker is still busy the tick is dropped rather than queued, so
+  the display never lags behind. Probabilities are smoothed with an exponential moving average.
+- **Files and samples:** uploads are decoded and resampled in the browser and classified in overlapping 3 s windows, with a
+  per-window timeline.
+- **Why in the browser:** Vercel serverless functions can't hold PyTorch or a 95 MB model comfortably, and a GPU server would
+  cost money and add latency. Client-side inference is free to host, private, and fast enough on a laptop.
 
-### 3. Treinamento do Modelo
+## Results
 
-- **Modelo Utilizado**:
-  - Um modelo de aprendizado de máquina foi treinado para classificar as emoções com base nas features extraídas.
-  - Frameworks como **TensorFlow/Keras** foram utilizados.
+Notebook [2-models.ipynb](notebooks/2-models.ipynb) has the full comparison, per-emotion F1 and confusion matrices. In short:
 
-- **Divisão dos Dados**:
-  - O dataset foi dividido em conjuntos de treinamento, validação e teste.
-  - Foi utilizada validação cruzada para evitar overfitting e avaliar a performance do modelo.
+- The fine-tuned wav2vec2 roughly **_W2V_GAIN_** the accuracy of the original CNN on unseen speakers.
+- Remaining errors are mostly between acoustically close emotions: calm ↔ neutral ↔ sad, and happy ↔ surprise ↔ fear.
+- The int8 browser model agrees with the PyTorch model on _AGREE_ of unseen-speaker clips.
 
-### 4. Interface com Streamlit
+## Limitations
 
-- **Funcionalidades**:
-  - Upload de arquivos de áudio pelo usuário.
-  - Predição da emoção baseada no modelo treinado.
-  - Exibição de resultados com a probabilidade de cada emoção.
+- **RAVDESS is acted, scripted, studio-quality North American English**: 24 actors, two sentences. Real conversations, other
+  languages and cheap microphones are much harder, and the demo will often say *neutral* or *calm* to natural speech.
+- It hears **tone, not words**.
+- Licensing: RAVDESS is CC BY-NC-SA 4.0, so the model and demo are non-commercial.
 
-### 5. Avaliação do Modelo
+## Repository
 
-- **Métricas de Avaliação**:
-  - Acurácia
-  - Matriz de confusão
-  - F1-score, precisão e recall
+```
+emotion/            Python package: data + split, baselines, fine-tuning, ONNX export, inference
+tests/              pytest: the exported ONNX model's predict() contract and a quality floor
+notebooks/          1-eda.ipynb (data analysis) · 2-models.ipynb (model comparison)
+results/            metrics written by the scripts (read by the notebooks and the website)
+fixtures/           8 short RAVDESS clips from held-out actors, used by both test suites
+web/                Next.js static site; lib/inference.ts is the worker's model code (vitest)
+```
 
-- **Resultados**:
-  - O desempenho do modelo foi avaliado nos dados de teste, e os resultados foram apresentados em forma de relatórios e gráficos no Streamlit.
+## Reproduce
 
----
+Requires [uv](https://docs.astral.sh/uv/) and Node 22.
 
-## Como Executar o Projeto
+```bash
+uv sync --group dev
+uv run python -m emotion.data         # downloads RAVDESS speech (~200 MB) and checks the split
+uv run python -m emotion.baselines    # logistic regression + original CNN (leaky and honest)
+uv run python -m emotion.finetune     # wav2vec2 fine-tuning (~1.5 h on an M4 MacBook, Apple GPU)
+uv run python -m emotion.export       # ONNX fp32 + int8, parity check, size/latency → artifacts/onnx
+uv run pytest
 
-1. Faça um fork desse repositório para o seu perfil do GitHub
+cd web && npm ci
+npm test                              # worker tests against the local export
+mkdir -p public/models && ln -s ../../../artifacts/onnx public/models/speech-emotion
+NEXT_PUBLIC_MODEL_LOCAL=1 npm run dev # or leave the variable out to load the model from the Hub
+```
 
-2. Clone este repositório:
-   ```bash
-   git clone https://github.com/seu-usuario/audio-emotion-classification.git
-   ```
+## Credits
 
-3. Instale as dependências:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Baixe o dataset RAVDESS e organize os arquivos conforme descrito no código.
-
-5. Execute o aplicativo Streamlit:
-   ```bash
-   streamlit run app.py
-   ```
-
-6. Envie um arquivo de áudio no aplicativo e veja o modelo predizer a emoção presente.
-
----
-
-## Tecnologias Utilizadas
-
-- **Python**
-- **Streamlit**
-- **Librosa**
-- **TensorFlow/Keras**
-- **Matplotlib/Seaborn** (para visualizações)
-
----
-
-## Próximos Passos
-
-- Adicionar suporte para outros datasets e emoções.
-- Melhorar a interface do Streamlit com gráficos interativos.
-- Implementar detecção em tempo real para gravações ao vivo.
-
----
-
-## Conclusão
-Podemos ver que nosso modelo é mais preciso na predição das emoções surpresa e raiva, o que faz sentido, pois os arquivos de áudio dessas emoções diferem bastante dos outros em aspectos como tom, velocidade, etc. Caso você queira contribuir sinta-se a vontade e me contate em: schmittluigi@gmail.com ou se você me conhece fale comigo :)
-
----
-
+- Data: Livingstone SR, Russo FA (2018). *The Ryerson Audio-Visual Database of Emotional Speech and Song (RAVDESS).*
+  PLoS ONE 13(5). [Zenodo](https://zenodo.org/records/1188976), CC BY-NC-SA 4.0.
+- Pretrained model: [facebook/wav2vec2-base](https://huggingface.co/facebook/wav2vec2-base).
+- Original project template and course: Trilha UFPB.
